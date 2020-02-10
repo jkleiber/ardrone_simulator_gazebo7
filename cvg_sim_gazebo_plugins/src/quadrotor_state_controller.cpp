@@ -24,7 +24,7 @@ GazeboQuadrotorStateController::GazeboQuadrotorStateController()
 {
   robot_current_state = INITIALIZE_MODEL;
   m_isFlying          = false;
-  m_takeoff           = false; 
+  m_takeoff           = false;
   m_drainBattery      = true;
   m_batteryPercentage = 100;
   m_maxFlightTime     = 1200;
@@ -64,7 +64,7 @@ void GazeboQuadrotorStateController::Load(physics::ModelPtr _model, sdf::Element
   else
     takeoff_topic_ = _sdf->GetElement("takeoffTopic")->Get<std::string>();
 
-  if (!_sdf->HasElement("/ardrone/land"))
+  if (!_sdf->HasElement("landTopic"))
     land_topic_ = "/ardrone/land";
   else
     land_topic_ = _sdf->GetElement("landTopic")->Get<std::string>();
@@ -212,9 +212,9 @@ void GazeboQuadrotorStateController::Load(physics::ModelPtr _model, sdf::Element
   toggleCam_service = node_handle_->advertiseService(toggleCam_ops);
 
   // camera image data
-  std::string cam_out_topic  = "/ardrone/image_raw";
-  std::string cam_front_in_topic = "/ardrone/front/image_raw";
-  std::string cam_bottom_in_topic = "/ardrone/bottom/image_raw";
+  std::string cam_out_topic  = "ardrone/image_raw";
+  std::string cam_front_in_topic = "ardrone/front/image_raw";
+  std::string cam_bottom_in_topic = "ardrone/bottom/image_raw";
   std::string in_transport = "raw";
 
   camera_it_ = new image_transport::ImageTransport(*node_handle_);
@@ -231,9 +231,9 @@ void GazeboQuadrotorStateController::Load(physics::ModelPtr _model, sdf::Element
     ros::VoidPtr(), in_transport);
 
   // camera image data
-  std::string cam_info_out_topic  = "/ardrone/camera_info";
-  std::string cam_info_front_in_topic = "/ardrone/front/camera_info";
-  std::string cam_info_bottom_in_topic = "/ardrone/bottom/camera_info";
+  std::string cam_info_out_topic  = "ardrone/camera_info";
+  std::string cam_info_front_in_topic = "ardrone/front/camera_info";
+  std::string cam_info_bottom_in_topic = "ardrone/bottom/camera_info";
 
   camera_info_publisher_ = node_handle_->advertise<sensor_msgs::CameraInfo>(cam_info_out_topic,1);
 
@@ -358,7 +358,7 @@ void GazeboQuadrotorStateController::Update()
     else
     {
       m_timeAfterTakeOff += dt;
-      if(m_timeAfterTakeOff > 0.5)
+      if(m_timeAfterTakeOff > 0.75)
       {
         //ROS_INFO("%f",m_timeAfterTakeOff);
         robot_current_state = FLYING_MODEL;
@@ -445,7 +445,7 @@ void GazeboQuadrotorStateController::Update()
 //  navdata.tags_height
 //  navdata.tags_orientation
 //  navdata.tags_distance
-   
+
 //  filter for sensor information
 //  filter_rate = 0.1;
 //  navdata.rotX = navdata.rotX*filter_rate + (1-filter_rate)*last_navdata.rotX;
@@ -477,7 +477,7 @@ void GazeboQuadrotorStateController::Update()
   navdataraw.us_courbe_temps= 0;
   navdataraw.us_courbe_valeur = 0;
   navdataraw.us_courbe_ref = 0;
-  navdataraw.flag_echo_ini = 0;																																												
+  navdataraw.flag_echo_ini = 0;
   navdataraw.nb_echo = 0;
   navdataraw.sum_echo = 0;
   if (!sonar_topic_.empty())

@@ -1,4 +1,12 @@
 
+#include <cmath>
+#include <cstdlib>
+#include <fstream>
+#include <iostream>
+#include <pwd.h>
+#include <sstream>
+#include <string>
+
 #include <ros/ros.h>
 #include <eigen3/Eigen/Dense>
 #include <boost/numeric/odeint.hpp>
@@ -20,6 +28,7 @@ double bob_mass;
 double cart_mass;
 double max_force;
 double pole_length;
+double NOISE;
 
 // Track state and control
 Eigen::Vector4d state;
@@ -34,6 +43,63 @@ ros::Publisher state_pub;
 // Time tracking
 ros::Time prev_time;
 
+// Save state results to file
+double cur_time;
+std::ofstream state_file;
+
+
+void initState()
+{
+    // Initialize the state
+    std::vector<double> init_state;
+
+    if(!ros::param::get("/init_state", init_state))
+    {
+        ROS_WARN("Warning: no initial state provided");
+
+        // Start with the default start state (pendulum up, cart sitting still)
+        state << 0, 0, 0, 0;
+    }
+    else
+    {
+        // Copy initial conditions from the temporary vector
+        for(int i=0; i < 4; ++i)
+        {
+            state(i) = init_state[i];
+        }
+    }
+}
+
+
+void initLogging()
+{
+    const char* home_dir;
+
+    //Find the user's home directory
+    if ((home_dir = getenv("HOME")) == NULL)
+    {
+        home_dir = getpwuid(getuid())->pw_dir;
+    }
+
+    // Convert to std::string
+    std::string filepath(home_dir);
+
+    // Ensure trailing slash
+    if(home_dir[strlen(home_dir)-1] != '/')
+    {
+        filepath += "/";
+    }
+
+    // Append filename
+    std::string log_path = filepath + "cart_pole_state.csv";
+
+    // Open file
+    state_file.open(log_path);
+
+    std::cout << "Simulation log file opened!\n";
+
+    cur_time = 0.0;
+}
 
 
 void dynamics(const Eigen::Vector4d& x, Eigen::VectorXd& dxdt, double t)
@@ -76,26 +142,57 @@ void updateState()
 
     // Update the time tracking
     prev_time = ros::Time::now();
+
+    // Update the time for logging
+    cur_time += dt;
+
+    // Log the state
+    std::string row("");
+    row += std::to_string(cur_time) + ", ";
+
+    for(int i = 0; i < 4; ++i)
+    {
+        row += std::to_string(state(i));
+
+        if(i < 3)
+        {
+            row += ", ";
+        }
+    }
+    row += "\n";
+    state_file << row;
 }
 
 
 void startCallback(const std_msgs::Empty::ConstPtr& empty)
 {
     sim_started = true;
+    initLogging();
     std::cout << "Cart-Pole Simulation started!\n";
 }
 
 void stopCallback(const std_msgs::Empty::ConstPtr& empty)
 {
     sim_started = false;
-    std::cout << "Cart-Pole Simulation paused!\n";
+    state_file.close();
+    std::cout << "Cart-Pole Simulation stopped!\n";
 }
 
+void resetCallback(const std_msgs::Empty::ConstPtr& empty)
+{
+    sim_started = false;
+    initState();
+    initLogging();
+    std::cout << "Cart-Pole Simulation reset!\n";
+}
 
 void controlCallback(const gtddp_drone_msgs::ctrl_data::ConstPtr& ctrl)
 {
     // Update the current force
     double force = ctrl->ctrl[0];
+
+    // Add noise to the system
+    force = force + 2 * NOISE * (drand48() - 0.5);
 
     // Make sure the force stays within the boundaries
     if(force < -max_force)
@@ -109,7 +206,7 @@ void controlCallback(const gtddp_drone_msgs::ctrl_data::ConstPtr& ctrl)
 
     // Update the dynamics given the control
     _u(0) = force;
-    updateState();
+    // updateState();
 }
 
 
@@ -133,6 +230,8 @@ void statePubCallback(const ros::TimerEvent event)
         // Publish
         state_pub.publish(state_msg);
     }
+
+    updateState();
 }
 
 
@@ -148,7 +247,7 @@ void simLoop(const ros::TimerEvent& event)
     }
 
     // Update the simulation state consistently
-    // updateState();
+    updateState();
 }
 
 
@@ -160,30 +259,18 @@ int main(int argc, char **argv)
     // Define the node
     ros::NodeHandle cpsim;
 
-    // Initialize the state
-    std::vector<double> init_state;
+    // Initialize the cart-pole state
+    initState();
 
-    if(!cpsim.getParam("/init_state", init_state))
-    {
-        ROS_WARN("Warning: no initial state provided");
-
-        // Start with the default start state (pendulum up, cart sitting still)
-        state << 0, 0, 0, 0;
-    }
-    else
-    {
-        // Copy initial conditions from the temporary vector
-        for(int i=0; i < 4; ++i)
-        {
-            state(i) = init_state[i];
-        }
-    }
+    // Initialize logging
+    initLogging();
 
     // Initialize the system paramters
     bob_mass = cpsim.param<double>("/mass", 0.50);
     cart_mass = cpsim.param<double>("/cart_mass", 10.0);
     max_force = cpsim.param<double>("/max_force", 100.0);
     pole_length = cpsim.param<double>("/length", 1.0);
+    NOISE = cpsim.param<double>("/noise", 0);
 
     std::cout << bob_mass << " " << cart_mass << " " << max_force << " " << pole_length << std::endl;
 
@@ -191,6 +278,7 @@ int main(int argc, char **argv)
     ros::Subscriber ctrl_sub = cpsim.subscribe(cpsim.resolveName("/cart/control"), 1, &controlCallback);
     ros::Subscriber start_sub = cpsim.subscribe(cpsim.resolveName("/cart/start"), 1, &startCallback);
     ros::Subscriber stop_sub = cpsim.subscribe(cpsim.resolveName("/cart/stop"), 1, &stopCallback);
+    ros::Subscriber reset_sub = cpsim.subscribe(cpsim.resolveName("/cart/reset"), 1, &resetCallback);
 
     // Publisher for the system state
     state_pub = cpsim.advertise<gtddp_drone_msgs::state_data>(cpsim.resolveName("/cart/state"), 1);

@@ -96,7 +96,9 @@ void initLogging()
     // Open file
     state_file.open(log_path);
 
-    std::cout << "Simulation log file opened!\n";
+    // HACK: For some reason this line has to be here in order for the state_file to produce output
+    // FIXME: Figure out what is wrong with the state_file output (buffering? need delay to open?)
+    std::cout << "Simulation log file opened: " << log_path << "\n";
 
     cur_time = 0.0;
 }
@@ -142,47 +144,34 @@ void updateState()
 
     // Update the time tracking
     prev_time = ros::Time::now();
-
-    // Update the time for logging
-    cur_time += dt;
-
-    // Log the state
-    std::string row("");
-    row += std::to_string(cur_time) + ", ";
-
-    for(int i = 0; i < 4; ++i)
-    {
-        row += std::to_string(state(i));
-
-        if(i < 3)
-        {
-            row += ", ";
-        }
-    }
-    row += "\n";
-    state_file << row;
 }
 
 
 void startCallback(const std_msgs::Empty::ConstPtr& empty)
 {
-    sim_started = true;
+    // Initialize the cart-pole state
+    initState();
+
+    // Initialize logging
     initLogging();
+
+    sim_started = true;
     std::cout << "Cart-Pole Simulation started!\n";
 }
 
 void stopCallback(const std_msgs::Empty::ConstPtr& empty)
 {
-    sim_started = false;
     state_file.close();
+    sim_started = false;
     std::cout << "Cart-Pole Simulation stopped!\n";
 }
 
 void resetCallback(const std_msgs::Empty::ConstPtr& empty)
 {
-    sim_started = false;
     initState();
     initLogging();
+
+    sim_started = false;
     std::cout << "Cart-Pole Simulation reset!\n";
 }
 
@@ -206,7 +195,6 @@ void controlCallback(const gtddp_drone_msgs::ctrl_data::ConstPtr& ctrl)
 
     // Update the dynamics given the control
     _u(0) = force;
-    // updateState();
 }
 
 
@@ -229,9 +217,29 @@ void statePubCallback(const ros::TimerEvent event)
 
         // Publish
         state_pub.publish(state_msg);
-    }
 
-    updateState();
+        // Update the time for logging
+        // HACK: Using last_real isn't robust, but the sim waits one loop to start
+        // anyway, so this will be fine
+        cur_time += (event.current_real - event.last_real).toSec();
+
+        // Log the state
+        std::string row("");
+        row += std::to_string(cur_time) + ", ";
+
+        for(int i = 0; i < 4; ++i)
+        {
+            row += std::to_string(state(i));
+
+            if(i < 3)
+            {
+                row += ", ";
+            }
+        }
+        row += "\n";
+        state_file << row;
+        state_file.flush();
+    }
 }
 
 
@@ -259,20 +267,12 @@ int main(int argc, char **argv)
     // Define the node
     ros::NodeHandle cpsim;
 
-    // Initialize the cart-pole state
-    initState();
-
-    // Initialize logging
-    initLogging();
-
     // Initialize the system paramters
     bob_mass = cpsim.param<double>("/mass", 0.50);
     cart_mass = cpsim.param<double>("/cart_mass", 10.0);
     max_force = cpsim.param<double>("/max_force", 100.0);
     pole_length = cpsim.param<double>("/length", 1.0);
     NOISE = cpsim.param<double>("/noise", 0);
-
-    std::cout << bob_mass << " " << cart_mass << " " << max_force << " " << pole_length << std::endl;
 
     // Subscribe to the control signal
     ros::Subscriber ctrl_sub = cpsim.subscribe(cpsim.resolveName("/cart/control"), 1, &controlCallback);

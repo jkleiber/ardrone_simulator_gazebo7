@@ -274,6 +274,10 @@ int main(int argc, char **argv)
     pole_length = cpsim.param<double>("/length", 1.0);
     NOISE = cpsim.param<double>("/noise", 0);
 
+    // Seed the random number generator for noise and monte carlo simulations
+    int seed = cpsim.param<int>("/seed", 0);
+    srand48(seed);
+
     // Subscribe to the control signal
     ros::Subscriber ctrl_sub = cpsim.subscribe(cpsim.resolveName("/cart/control"), 1, &controlCallback);
     ros::Subscriber start_sub = cpsim.subscribe(cpsim.resolveName("/cart/start"), 1, &startCallback);
